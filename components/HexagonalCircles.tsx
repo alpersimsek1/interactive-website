@@ -1,11 +1,18 @@
 import { useRef, useEffect, useState } from 'react';
-import * as THREE from 'three';
+
+// Define interface for face data
+interface FaceData {
+  vertices: number[];
+  center: [number, number, number];
+  isPentagon: boolean;
+}
 
 export default function HexagonalCircles() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number>(0);
   const timeRef = useRef<number>(0);
-  const [mousePos, setMousePos] = useState<THREE.Vector2>(new THREE.Vector2(0, 0));
+  const wormholeRef = useRef<number>(0);
+  const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isClicking, setIsClicking] = useState(false);
   
   useEffect(() => {
@@ -17,13 +24,17 @@ export default function HexagonalCircles() {
     
     // Set canvas dimensions
     const resizeCanvas = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
     };
     
     // Handle mouse events
     const handleMouseMove = (e: MouseEvent) => {
-      setMousePos(new THREE.Vector2(e.clientX, e.clientY));
+      const rect = canvas.getBoundingClientRect();
+      setMousePos({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      });
     };
     
     const handleMouseDown = () => {
@@ -34,11 +45,16 @@ export default function HexagonalCircles() {
       setIsClicking(false);
     };
     
+    const handleMouseLeave = () => {
+      setIsClicking(false);
+    };
+    
     // Add event listeners
     window.addEventListener('resize', resizeCanvas);
     canvas.addEventListener('mousemove', handleMouseMove);
     canvas.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mouseup', handleMouseUp);
+    canvas.addEventListener('mouseup', handleMouseUp);
+    canvas.addEventListener('mouseleave', handleMouseLeave);
     
     resizeCanvas();
     
@@ -47,7 +63,8 @@ export default function HexagonalCircles() {
       window.removeEventListener('resize', resizeCanvas);
       canvas.removeEventListener('mousemove', handleMouseMove);
       canvas.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mouseup', handleMouseUp);
+      canvas.removeEventListener('mouseup', handleMouseUp);
+      canvas.removeEventListener('mouseleave', handleMouseLeave);
       cancelAnimationFrame(animationFrameRef.current);
     };
   }, []);
@@ -62,66 +79,59 @@ export default function HexagonalCircles() {
     // Animation variables
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
-    
-    // Create geodesic sphere configuration
     const radius = Math.min(canvas.width, canvas.height) * 0.4;
     
-    // Generate icosahedron vertices (12 vertices)
-    const phi = (1 + Math.sqrt(5)) / 2; // Golden ratio
-    const icosahedronVertices = [
-      [-1, phi, 0], [1, phi, 0], [-1, -phi, 0], [1, -phi, 0],
-      [0, -1, phi], [0, 1, phi], [0, -1, -phi], [0, 1, -phi],
-      [phi, 0, -1], [phi, 0, 1], [-phi, 0, -1], [-phi, 0, 1]
-    ].map(([x, y, z]) => normalizeVector(x, y, z));
-    
-    // Generate icosahedron faces (20 triangular faces)
-    const icosahedronFaces = [
-      [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
-      [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
-      [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
-      [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]
-    ];
-    
-    // Subdivide icosahedron to create geodesic structure
-    const frequency = 3; // Subdivision frequency (higher = more detailed)
-    const { vertices, faces } = subdivideIcosahedron(icosahedronVertices, icosahedronFaces, frequency);
-    
-    // Generate face centers and identify face type (pentagon or hexagon)
-    const faceData = generateFaceData(vertices, faces);
+    // Create geodesic sphere
+    const { vertices, faces } = createGeodesicSphere(2); // Level 2 subdivision
     
     // Animation loop
     const animate = () => {
-      // Clear canvas with solid background
-      ctx.fillStyle = 'rgba(245, 245, 245, 1)';
+      // Clear canvas with solid black background
+      ctx.fillStyle = 'rgba(0, 0, 0, 1)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
-      // Update time using ref to avoid state updates
+      // Update time
       timeRef.current += 0.003;
       const time = timeRef.current;
+      
+      // Update wormhole effect
+      if (isClicking) {
+        wormholeRef.current = Math.min(1, wormholeRef.current + 0.03);
+      } else {
+        wormholeRef.current = Math.max(0, wormholeRef.current - 0.02);
+      }
       
       // Calculate mouse influence
       const mouseInfluence = isClicking ? 0.5 : 0.2;
       const mouseDistanceX = (mousePos.x - centerX) / (canvas.width / 2);
       const mouseDistanceY = (mousePos.y - centerY) / (canvas.height / 2);
-      const mouseAngle = Math.atan2(mouseDistanceY, mouseDistanceX);
-      const mouseDistance = Math.sqrt(mouseDistanceX * mouseDistanceX + mouseDistanceY * mouseDistanceY);
       
       // 3D rotation based on mouse position and time
       const rotationX = time * 0.1 + mouseDistanceY * mouseInfluence * 2;
       const rotationY = time * 0.15 + mouseDistanceX * mouseInfluence * 2;
       const rotationZ = isClicking ? time * 0.05 : 0;
       
-      // Draw the geodesic structure
-      drawGeodesicStructure(
-        ctx, 
-        centerX, 
-        centerY, 
-        radius, 
-        vertices, 
-        faceData, 
-        rotationX, 
-        rotationY, 
-        rotationZ
+      // Draw wormhole effect if active
+      if (wormholeRef.current > 0) {
+        try {
+          drawWormholeEffect(ctx, centerX, centerY, radius, time, wormholeRef.current);
+        } catch (error) {
+          console.error("Error in wormhole effect:", error);
+        }
+      }
+      
+      // Draw the geodesic sphere
+      drawGeodesicSphere(
+        ctx,
+        centerX,
+        centerY,
+        radius,
+        vertices,
+        faces,
+        rotationX,
+        rotationY,
+        rotationZ,
+        wormholeRef.current
       );
       
       // Continue animation
@@ -137,62 +147,70 @@ export default function HexagonalCircles() {
     };
   }, [mousePos, isClicking]);
   
-  // Normalize a 3D vector to unit length
-  const normalizeVector = (x: number, y: number, z: number): [number, number, number] => {
-    const length = Math.sqrt(x * x + y * y + z * z);
-    return [x / length, y / length, z / length];
-  };
-  
-  // Subdivide an icosahedron to create a geodesic structure
-  const subdivideIcosahedron = (
-    vertices: [number, number, number][],
-    faces: number[][],
-    frequency: number
-  ) => {
-    // Create a cache for midpoint vertices to avoid duplicates
-    const midpointCache: Record<string, number> = {};
+  // Create a geodesic sphere by subdividing an icosahedron
+  const createGeodesicSphere = (subdivisions: number) => {
+    // Golden ratio for icosahedron
+    const phi = (1 + Math.sqrt(5)) / 2;
     
-    // Function to get or create a midpoint vertex
-    const getMidpoint = (i1: number, i2: number): number => {
-      // Ensure consistent ordering of indices
-      const [a, b] = i1 < i2 ? [i1, i2] : [i2, i1];
-      const key = `${a}-${b}`;
+    // Icosahedron vertices (normalized)
+    const baseVertices = [
+      [-1, phi, 0], [1, phi, 0], [-1, -phi, 0], [1, -phi, 0],
+      [0, -1, phi], [0, 1, phi], [0, -1, -phi], [0, 1, -phi],
+      [phi, 0, -1], [phi, 0, 1], [-phi, 0, -1], [-phi, 0, 1]
+    ].map(([x, y, z]) => normalize([x, y, z]));
+    
+    // Icosahedron faces (20 triangular faces)
+    const baseFaces = [
+      [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
+      [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+      [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
+      [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]
+    ];
+    
+    // Subdivide the icosahedron
+    let vertices = [...baseVertices];
+    let faces = [...baseFaces];
+    
+    // Helper function to get midpoint of two vertices
+    const getMidpoint = (a: number, b: number, vertexMap: Map<string, number>, currentVertices: number[][]) => {
+      // Ensure consistent key regardless of vertex order
+      const key = a < b ? `${a}-${b}` : `${b}-${a}`;
       
-      if (midpointCache[key] !== undefined) {
-        return midpointCache[key];
+      if (vertexMap.has(key)) {
+        return vertexMap.get(key)!;
       }
       
-      // Calculate midpoint
-      const v1 = vertices[a];
-      const v2 = vertices[b];
-      const midpoint = normalizeVector(
-        (v1[0] + v2[0]) / 2,
-        (v1[1] + v2[1]) / 2,
-        (v1[2] + v2[2]) / 2
-      );
+      // Calculate midpoint and normalize to sphere
+      const va = currentVertices[a];
+      const vb = currentVertices[b];
+      const midpoint = normalize([
+        (va[0] + vb[0]) / 2,
+        (va[1] + vb[1]) / 2,
+        (va[2] + vb[2]) / 2
+      ]);
       
-      // Add to vertices and cache
-      const index = vertices.length;
-      vertices.push(midpoint);
-      midpointCache[key] = index;
+      // Add new vertex
+      const index = currentVertices.length;
+      currentVertices.push(midpoint);
+      vertexMap.set(key, index);
       
       return index;
     };
     
-    // Subdivide each face
-    for (let f = 0; f < frequency; f++) {
-      const newFaces: number[][] = [];
+    // Perform subdivision
+    for (let i = 0; i < subdivisions; i++) {
+      const newFaces = [];
+      const vertexMap = new Map<string, number>();
       
       for (const face of faces) {
-        // Get the three vertices of the face
         const [a, b, c] = face;
         
-        // Calculate midpoints
-        const ab = getMidpoint(a, b);
-        const bc = getMidpoint(b, c);
-        const ca = getMidpoint(c, a);
+        // Get midpoints
+        const ab = getMidpoint(a, b, vertexMap, vertices);
+        const bc = getMidpoint(b, c, vertexMap, vertices);
+        const ca = getMidpoint(c, a, vertexMap, vertices);
         
-        // Create four new faces
+        // Create 4 new faces
         newFaces.push([a, ab, ca]);
         newFaces.push([b, bc, ab]);
         newFaces.push([c, ca, bc]);
@@ -205,247 +223,174 @@ export default function HexagonalCircles() {
     return { vertices, faces };
   };
   
-  // Generate face data including centers and types (pentagon/hexagon)
-  const generateFaceData = (
-    vertices: [number, number, number][],
-    faces: number[][]
-  ) => {
-    // Create a map to track vertex adjacency
-    const vertexFaces: Record<number, number[]> = {};
-    
-    // Map faces to vertices
-    faces.forEach((face, faceIndex) => {
-      face.forEach(vertexIndex => {
-        if (!vertexFaces[vertexIndex]) {
-          vertexFaces[vertexIndex] = [];
-        }
-        vertexFaces[vertexIndex].push(faceIndex);
-      });
-    });
-    
-    // Generate face centers and identify face types
-    const faceData = faces.map(face => {
-      // Calculate face center
-      const center = [0, 0, 0];
-      face.forEach(vertexIndex => {
-        const vertex = vertices[vertexIndex];
-        center[0] += vertex[0];
-        center[1] += vertex[1];
-        center[2] += vertex[2];
-      });
-      
-      center[0] /= face.length;
-      center[1] /= face.length;
-      center[2] /= face.length;
-      
-      // Normalize center to lie on the sphere
-      const normalizedCenter = normalizeVector(center[0], center[1], center[2]);
-      
-      // Determine if this is a pentagon or hexagon
-      // In a geodesic dome, 12 vertices will have 5 adjacent faces (pentagons)
-      // The rest will have 6 adjacent faces (hexagons)
-      const isPentagon = face.some(vertexIndex => {
-        // Original icosahedron vertices become pentagons
-        return vertexIndex < 12;
-      });
-      
-      return {
-        center: normalizedCenter,
-        vertices: face.map(index => vertices[index]),
-        isPentagon
-      };
-    });
-    
-    return faceData;
+  // Normalize a vector to unit length
+  const normalize = (v: number[]): number[] => {
+    const length = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    return [v[0] / length, v[1] / length, v[2] / length];
   };
   
-  // Apply 3D rotation to a point
-  const rotatePoint = (
-    point: [number, number, number],
-    rotationX: number,
-    rotationY: number,
-    rotationZ: number
-  ): [number, number, number] => {
-    let [x, y, z] = point;
-    
-    // Rotate around X axis
-    const cosX = Math.cos(rotationX);
-    const sinX = Math.sin(rotationX);
-    const y1 = y * cosX - z * sinX;
-    const z1 = y * sinX + z * cosX;
-    
-    // Rotate around Y axis
-    const cosY = Math.cos(rotationY);
-    const sinY = Math.sin(rotationY);
-    const x2 = x * cosY + z1 * sinY;
-    const z2 = -x * sinY + z1 * cosY;
-    
-    // Rotate around Z axis
-    const cosZ = Math.cos(rotationZ);
-    const sinZ = Math.sin(rotationZ);
-    const x3 = x2 * cosZ - y1 * sinZ;
-    const y3 = x2 * sinZ + y1 * cosZ;
-    
-    return [x3, y3, z2];
-  };
-  
-  // Project a 3D point to 2D screen coordinates
-  const projectPoint = (
-    point: [number, number, number],
-    centerX: number,
-    centerY: number,
-    radius: number
-  ): [number, number, number] => {
-    const [x, y, z] = point;
-    
-    // Simple perspective projection
-    const scale = radius / (2 + z);
-    const screenX = centerX + x * scale;
-    const screenY = centerY + y * scale;
-    
-    // Return screen coordinates and depth (z) for sorting
-    return [screenX, screenY, z];
-  };
-  
-  // Draw the geodesic structure
-  const drawGeodesicStructure = (
+  // Draw wormhole effect
+  const drawWormholeEffect = (
     ctx: CanvasRenderingContext2D,
     centerX: number,
     centerY: number,
     radius: number,
-    vertices: [number, number, number][],
-    faceData: any[],
-    rotationX: number,
-    rotationY: number,
-    rotationZ: number
+    time: number,
+    intensity: number
   ) => {
-    // Sort faces by depth (painter's algorithm)
-    const sortedFaces = [...faceData].map(face => {
-      // Rotate the center point
-      const rotatedCenter = rotatePoint(face.center, rotationX, rotationY, rotationZ);
-      // Project to screen coordinates
-      const [screenX, screenY, depth] = projectPoint(rotatedCenter, centerX, centerY, radius);
-      
-      return {
-        ...face,
-        screenCenter: [screenX, screenY],
-        depth
-      };
-    }).sort((a, b) => a.depth - b.depth);
+    // Draw concentric circles for wormhole effect
+    const maxCircles = 15;
+    const circleSpacing = radius / maxCircles;
     
-    // Draw faces from back to front
-    sortedFaces.forEach(face => {
-      const { vertices, isPentagon, screenCenter, depth } = face;
-      
-      // Calculate screen coordinates for each vertex
-      const screenVertices = vertices.map((vertex: [number, number, number]) => {
-        const rotated = rotatePoint(vertex, rotationX, rotationY, rotationZ);
-        const [x, y] = projectPoint(rotated, centerX, centerY, radius);
-        return [x, y];
-      });
-      
-      // Draw the face
-      drawPolygon(
-        ctx,
-        screenVertices,
-        screenCenter,
-        isPentagon,
-        depth
-      );
-    });
+    // Create a gradient from center to edge
+    const gradient = ctx.createRadialGradient(
+      centerX, centerY, 0,
+      centerX, centerY, radius * intensity
+    );
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    gradient.addColorStop(0.5, 'rgba(20, 100, 150, 0.2)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
     
-    // Draw connecting lines for structural effect
-    drawConnectingLines(ctx, centerX, centerY, radius, rotationX, rotationY);
-  };
-  
-  // Draw a polygon (pentagon or hexagon)
-  const drawPolygon = (
-    ctx: CanvasRenderingContext2D,
-    vertices: [number, number][],
-    center: [number, number],
-    isPentagon: boolean,
-    depth: number
-  ) => {
-    // Calculate visibility based on depth (front faces are more visible)
-    const visibility = Math.max(0, Math.min(1, (depth + 1) * 0.5));
-    
-    // Set colors based on polygon type
-    const hue = isPentagon ? 200 : 190; // Slightly different colors for pentagons/hexagons
-    const saturation = 70 - visibility * 20; // Less saturated for back faces
-    const lightness = 50 - visibility * 10; // Darker for back faces
-    
-    // Draw polygon
+    // Draw wormhole background
+    ctx.fillStyle = gradient;
     ctx.beginPath();
-    vertices.forEach(([x, y], i) => {
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.closePath();
-    
-    // Very subtle fill
-    ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${0.05 + visibility * 0.1})`;
+    ctx.arc(centerX, centerY, radius * intensity, 0, Math.PI * 2);
     ctx.fill();
     
-    // Edge highlight
-    ctx.strokeStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${0.4 + visibility * 0.4})`;
-    ctx.lineWidth = 1 * (0.5 + visibility * 0.5);
-    ctx.stroke();
+    // Draw concentric circles
+    for (let i = 0; i < maxCircles; i++) {
+      const circleRadius = i * circleSpacing * intensity;
+      const alpha = 0.5 - (i / maxCircles) * 0.4;
+      
+      ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, circleRadius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     
-    // Add subtle shadow for depth
-    if (depth > 0) {
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
-      ctx.shadowBlur = 2;
-      ctx.shadowOffsetX = 1;
-      ctx.shadowOffsetY = 1;
-    } else {
-      ctx.shadowColor = 'transparent';
+    // Draw stars in the wormhole
+    const starCount = Math.floor(100 * intensity);
+    
+    for (let i = 0; i < starCount; i++) {
+      // Calculate star position in polar coordinates
+      const angle = Math.random() * Math.PI * 2;
+      const distance = Math.random() * radius * intensity;
+      
+      // Convert to cartesian coordinates
+      const x = centerX + Math.cos(angle) * distance;
+      const y = centerY + Math.sin(angle) * distance;
+      
+      // Star size and brightness based on distance from center
+      const normalizedDistance = distance / (radius * intensity);
+      const starSize = 1 + Math.random() * 2 * (1 - normalizedDistance);
+      const brightness = 0.5 + 0.5 * (1 - normalizedDistance);
+      
+      // Draw the star
+      ctx.fillStyle = `rgba(255, 255, 255, ${brightness})`;
+      ctx.beginPath();
+      ctx.arc(x, y, starSize, 0, Math.PI * 2);
+      ctx.fill();
     }
   };
   
-  // Draw connecting lines for structural effect
-  const drawConnectingLines = (
+  // Draw the geodesic sphere
+  const drawGeodesicSphere = (
     ctx: CanvasRenderingContext2D,
     centerX: number,
     centerY: number,
     radius: number,
+    vertices: number[][],
+    faces: number[][],
     rotationX: number,
-    rotationY: number
+    rotationY: number,
+    rotationZ: number,
+    wormholeIntensity: number
   ) => {
-    // Create a few structural lines for visual effect
-    const lineCount = 12; // 12 lines for the 12 vertices of the icosahedron
+    // Apply 3D rotation to vertices
+    const rotatedVertices = vertices.map(vertex => {
+      let [x, y, z] = vertex;
+      
+      // Apply rotation around X axis
+      const y1 = y * Math.cos(rotationX) - z * Math.sin(rotationX);
+      const z1 = y * Math.sin(rotationX) + z * Math.cos(rotationX);
+      
+      // Apply rotation around Y axis
+      const x2 = x * Math.cos(rotationY) + z1 * Math.sin(rotationY);
+      const z2 = -x * Math.sin(rotationY) + z1 * Math.cos(rotationY);
+      
+      // Apply rotation around Z axis
+      const x3 = x2 * Math.cos(rotationZ) - y1 * Math.sin(rotationZ);
+      const y3 = x2 * Math.sin(rotationZ) + y1 * Math.cos(rotationZ);
+      
+      return [x3, y3, z2];
+    });
     
-    for (let i = 0; i < lineCount; i++) {
-      // Calculate angles based on icosahedron vertices
-      const phi = Math.PI * (3 - Math.sqrt(5)); // Golden angle
-      const y = 1 - (i / (lineCount - 1)) * 2; // y goes from 1 to -1
-      const radius2 = Math.sqrt(1 - y * y); // radius at y
-      const theta = phi * i; // golden angle increment
-      
-      // Calculate 3D point on the sphere
-      const x = Math.cos(theta) * radius2;
-      const z = Math.sin(theta) * radius2;
-      
-      // Rotate the point
-      const [rx, ry, rz] = rotatePoint([x, y, z], rotationX, rotationY, 0);
-      
-      // Project to screen coordinates
-      const innerRadius = radius * 0.2;
-      const outerRadius = radius * 1.05;
-      
-      // Only draw lines that are somewhat visible (facing forward)
-      if (rz > -0.2) {
-        // Calculate screen coordinates
-        const [x1, y1] = projectPoint([rx * 0.2, ry * 0.2, rz * 0.2], centerX, centerY, radius);
-        const [x2, y2] = projectPoint([rx, ry, rz], centerX, centerY, radius);
-        
-        // Draw the line with subtle color
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.strokeStyle = `rgba(30, 120, 160, ${0.1 + Math.max(0, rz) * 0.2})`;
-        ctx.lineWidth = 0.5 + Math.max(0, rz) * 0.5;
-        ctx.stroke();
+    // Calculate face depths for sorting
+    const faceDepths = faces.map(face => {
+      // Calculate average z-coordinate for depth sorting
+      let avgZ = 0;
+      for (const vertexIndex of face) {
+        avgZ += rotatedVertices[vertexIndex][2];
       }
+      avgZ /= face.length;
+      
+      return { face, avgZ };
+    });
+    
+    // Sort faces by depth (back to front)
+    faceDepths.sort((a, b) => a.avgZ - b.avgZ);
+    
+    // Draw faces
+    for (const { face, avgZ } of faceDepths) {
+      // Project vertices to 2D
+      const projectedVertices = face.map(vertexIndex => {
+        const [x, y, z] = rotatedVertices[vertexIndex];
+        
+        // Apply perspective projection
+        const scale = 1.5 / (2 + z);
+        
+        // Apply wormhole distortion if active
+        let distortionX = 0;
+        let distortionY = 0;
+        
+        if (wormholeIntensity > 0) {
+          // Calculate distortion based on distance and wormhole intensity
+          const distortionFactor = wormholeIntensity * 0.5 * (1 - Math.max(0, z));
+          distortionX = -x * distortionFactor;
+          distortionY = -y * distortionFactor;
+        }
+        
+        // Apply projection with distortion
+        const projX = centerX + (x + distortionX) * radius * scale;
+        const projY = centerY + (y + distortionY) * radius * scale;
+        
+        return [projX, projY];
+      });
+      
+      // Calculate brightness based on orientation
+      const normalizedZ = (avgZ + 1) / 2;
+      const brightness = 0.3 + 0.7 * normalizedZ;
+      
+      // Draw face
+      ctx.beginPath();
+      projectedVertices.forEach(([x, y], i) => {
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      });
+      ctx.closePath();
+      
+      // Fill face with color
+      ctx.fillStyle = `rgba(255, 255, 255, ${brightness * 0.7})`;
+      ctx.fill();
+      
+      // Draw edge
+      ctx.strokeStyle = `rgba(255, 255, 255, ${brightness * 0.9})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
     }
   };
   
@@ -453,9 +398,7 @@ export default function HexagonalCircles() {
     <canvas 
       ref={canvasRef} 
       className="w-full h-full"
-      style={{ 
-        background: 'linear-gradient(to bottom, #f5f5f5 0%, #e0e0e0 100%)'
-      }}
+      style={{ background: 'black' }}
     />
   );
 } 
