@@ -1,257 +1,514 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useState, useEffect, useMemo } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { OrbitControls, AdaptiveDpr, Sphere, Line, Torus, TorusKnot } from '@react-three/drei';
 import * as THREE from 'three';
 
-export default function MathPatterns() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationFrameRef = useRef<number>(0);
-  const timeRef = useRef<number>(0);
-  const [mousePos, setMousePos] = useState<THREE.Vector2>(new THREE.Vector2(0, 0));
-  const [isClicking, setIsClicking] = useState(false);
+// Types for the generative art parameters
+type ArtParams = {
+  curveType: 'waves' | 'ribbons' | 'shell' | 'vortex';
+  complexity: number; // 1-10
+  amplitude: number; // 0.1-2.0
+  frequency: number; // 0.1-5.0
+  rotation: number; // 0-360
+  monochrome: boolean;
+  colorScheme: 'blue' | 'purple' | 'gray' | 'golden';
+  density: number; // 10-100
+};
+
+// Default parameters
+const defaultParams: ArtParams = {
+  curveType: 'waves',
+  complexity: 5,
+  amplitude: 1.0,
+  frequency: 1.0,
+  rotation: 0,
+  monochrome: true,
+  colorScheme: 'gray',
+  density: 50
+};
+
+// The ParametricSurface component that generates the actual geometries
+const ParametricSurface = ({ params, time }: { params: ArtParams, time: number }) => {
+  const groupRef = useRef<THREE.Group>(null);
   
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  // Generate points for the parametric surface based on parameters
+  const { curves, colorPalette } = useMemo(() => {
+    const curves: THREE.Vector3[][] = [];
+    const colorPalette: THREE.Color[] = [];
     
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    // Determine color palette based on scheme
+    if (params.monochrome) {
+      // Monochromatic palette with various shades
+      switch (params.colorScheme) {
+        case 'blue':
+          for (let i = 0; i < 10; i++) {
+            colorPalette.push(new THREE.Color().setHSL(0.6, 0.8, 0.2 + i * 0.08));
+          }
+          break;
+        case 'purple':
+          for (let i = 0; i < 10; i++) {
+            colorPalette.push(new THREE.Color().setHSL(0.75, 0.8, 0.2 + i * 0.08));
+          }
+          break;
+        case 'golden':
+          for (let i = 0; i < 10; i++) {
+            colorPalette.push(new THREE.Color().setHSL(0.12, 0.8, 0.2 + i * 0.08));
+          }
+          break;
+        default: // gray
+          for (let i = 0; i < 10; i++) {
+            const value = 0.2 + i * 0.08;
+            colorPalette.push(new THREE.Color(value, value, value));
+          }
+      }
+    } else {
+      // Color gradient based on scheme
+      switch (params.colorScheme) {
+        case 'blue':
+          for (let i = 0; i < 10; i++) {
+            colorPalette.push(new THREE.Color().setHSL(0.5 + i * 0.05, 0.7, 0.5));
+          }
+          break;
+        case 'purple':
+          for (let i = 0; i < 10; i++) {
+            colorPalette.push(new THREE.Color().setHSL(0.7 + i * 0.03, 0.7, 0.5));
+          }
+          break;
+        case 'golden':
+          for (let i = 0; i < 10; i++) {
+            colorPalette.push(new THREE.Color().setHSL(0.1 + i * 0.02, 0.7, 0.5));
+          }
+          break;
+        default: // gray with subtle hue shifts
+          for (let i = 0; i < 10; i++) {
+            const value = 0.3 + i * 0.07;
+            colorPalette.push(new THREE.Color(value, value, value));
+          }
+      }
+    }
     
-    // Set canvas dimensions
-    const resizeCanvas = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
-    
-    // Handle mouse events
-    const handleMouseMove = (e: MouseEvent) => {
-      setMousePos(new THREE.Vector2(e.clientX, e.clientY));
-    };
-    
-    const handleMouseDown = () => {
-      setIsClicking(true);
-    };
-    
-    const handleMouseUp = () => {
-      setIsClicking(false);
-    };
-    
-    // Add event listeners
-    window.addEventListener('resize', resizeCanvas);
-    canvas.addEventListener('mousemove', handleMouseMove);
-    canvas.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mouseup', handleMouseUp);
-    
-    resizeCanvas();
-    
-    // Cleanup
-    return () => {
-      window.removeEventListener('resize', resizeCanvas);
-      canvas.removeEventListener('mousemove', handleMouseMove);
-      canvas.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mouseup', handleMouseUp);
-      cancelAnimationFrame(animationFrameRef.current);
-    };
-  }, []);
-  
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    // Animation variables
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    
-    // Create pattern configuration
-    const rings = 6;
-    const maxRadius = Math.min(canvas.width, canvas.height) * 0.45;
-    const segmentsPerRing = [3, 5, 8, 12, 16, 24];
-    const ringRotationSpeeds = [0.0005, -0.0003, 0.0007, -0.0004, 0.0006, -0.0005];
-    const ringRotationOffsets = [0, Math.PI / 4, Math.PI / 3, Math.PI / 6, Math.PI / 8, Math.PI / 5];
-    
-    // Animation loop
-    const animate = () => {
-      // Clear canvas with fade effect
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.03)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Generate curves based on type
+    const segments = Math.floor(params.density * (params.complexity / 5));
+    const getCurvePoints = (
+      uStart: number, 
+      uEnd: number, 
+      vStart: number, 
+      vEnd: number, 
+      uCount: number, 
+      vCount: number,
+      generator: (u: number, v: number) => THREE.Vector3
+    ) => {
+      const points: THREE.Vector3[][] = [];
       
-      // Update time using ref to avoid state updates
-      timeRef.current += 0.01;
-      const time = timeRef.current;
-      
-      // Calculate mouse influence
-      const mouseInfluence = isClicking ? 0.5 : 0.2;
-      const mouseDistanceX = (mousePos.x - centerX) / (canvas.width / 2);
-      const mouseDistanceY = (mousePos.y - centerY) / (canvas.height / 2);
-      const mouseAngle = Math.atan2(mouseDistanceY, mouseDistanceX);
-      const mouseDistance = Math.sqrt(mouseDistanceX * mouseDistanceX + mouseDistanceY * mouseDistanceY);
-      
-      // Draw each ring
-      for (let i = 0; i < rings; i++) {
-        const radius = maxRadius * ((i + 1) / rings);
-        const segments = segmentsPerRing[i];
-        const rotationSpeed = ringRotationSpeeds[i];
-        const rotationOffset = ringRotationOffsets[i];
+      for (let ui = 0; ui < uCount; ui++) {
+        const u = uStart + (uEnd - uStart) * (ui / (uCount - 1));
+        const curve: THREE.Vector3[] = [];
         
-        // Calculate current rotation with mouse influence
-        const rotation = time * rotationSpeed + rotationOffset + (mouseAngle * mouseInfluence);
-        
-        // Draw ring with pulsating effect influenced by mouse
-        const pulseAmount = Math.sin(time * 0.2 + i * 0.5) * 0.1 + 0.9;
-        const mouseEffect = isClicking ? (1 + mouseDistance * 0.3) : 1;
-        const currentRadius = radius * pulseAmount * mouseEffect;
-        
-        // Draw ring with varying opacity
-        const opacity = 0.8 - i * 0.1 + Math.sin(time * 0.3 + i) * 0.1;
-        ctx.strokeStyle = `rgba(255, 255, 255, ${opacity})`;
-        ctx.lineWidth = 1.5 - i * 0.2;
-        
-        // Draw segments
-        for (let j = 0; j < segments; j++) {
-          const segmentLength = 0.8 + Math.sin(time * 0.5 + j * 0.2) * 0.1;
-          const startAngle = (j / segments) * Math.PI * 2 + rotation;
-          const endAngle = ((j + segmentLength) / segments) * Math.PI * 2 + rotation;
-          
-          ctx.beginPath();
-          ctx.arc(centerX, centerY, currentRadius, startAngle, endAngle);
-          ctx.stroke();
+        for (let vi = 0; vi < vCount; vi++) {
+          const v = vStart + (vEnd - vStart) * (vi / (vCount - 1));
+          curve.push(generator(u, v));
         }
         
-        // Draw connecting lines occasionally with pulsating effect
-        if (i < rings - 1 && Math.sin(time * 0.5 + i) > 0.6) {
-          const nextRadius = maxRadius * ((i + 2) / rings) * pulseAmount * mouseEffect;
-          const lineCount = 3 + Math.floor(Math.sin(time * 0.2) * 2);
-          
-          ctx.strokeStyle = `rgba(255, 255, 255, ${0.3 + Math.sin(time * 0.2) * 0.1})`;
-          ctx.lineWidth = 0.5;
-          
-          for (let j = 0; j < lineCount; j++) {
-            const angle = (j / lineCount) * Math.PI * 2 + time * 0.1;
+        points.push(curve);
+      }
+      
+      return points;
+    };
+    
+    const rotationRad = params.rotation * Math.PI / 180;
+    const amp = params.amplitude;
+    const freq = params.frequency;
+    
+    switch (params.curveType) {
+      case 'waves': {
+        // Wave-like surface with oscillations
+        curves.push(...getCurvePoints(
+          0, Math.PI * 2, 0, Math.PI * 2, 
+          segments, Math.floor(segments / 2),
+          (u, v) => {
+            const x = (3 + Math.cos(u * freq) * Math.sin(v * freq) * amp) * Math.cos(u + rotationRad);
+            const y = (3 + Math.cos(u * freq) * Math.sin(v * freq) * amp) * Math.sin(u + rotationRad);
+            const z = Math.sin(u * freq) * amp + Math.cos(v * freq * 2) * amp;
+            return new THREE.Vector3(x, y, z);
+          }
+        ));
+        break;
+      }
+      case 'ribbons': {
+        // Ribbon-like structures that fold and bend
+        const ribbonCount = Math.floor(params.complexity * 1.5);
+        for (let r = 0; r < ribbonCount; r++) {
+          const phase = (r / ribbonCount) * Math.PI * 2;
+          curves.push(...getCurvePoints(
+            0, Math.PI * 2, 0, 1, 
+            segments, 20,
+            (u, v) => {
+              const offset = r * 0.2;
+              const width = 0.1 + v * 0.2;
+              const x = (3 + Math.sin(u * freq + phase) * amp) * Math.cos(u + rotationRad);
+              const y = (3 + Math.sin(u * freq + phase) * amp) * Math.sin(u + rotationRad);
+              const z = Math.cos(u * freq * 2 + phase) * amp + offset;
+              
+              // Add perpendicular offset to create ribbon width
+              const tangent = new THREE.Vector3(
+                -Math.sin(u + rotationRad),
+                Math.cos(u + rotationRad),
+                0
+              ).normalize();
+              
+              const normal = new THREE.Vector3(0, 0, 1);
+              const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
+              
+              // Offset perpendicular to the curve
+              const perpOffset = binormal.multiplyScalar((v - 0.5) * width);
+              
+              return new THREE.Vector3(x, y, z).add(perpOffset);
+            }
+          ));
+        }
+        break;
+      }
+      case 'shell': {
+        // Logarithmic spiral shell-like structure
+        curves.push(...getCurvePoints(
+          0, Math.PI * 8, 0, Math.PI * 2, 
+          segments, Math.floor(segments / 3),
+          (u, v) => {
+            const a = amp * 0.3;
+            const b = 0.15 * freq;
+            const r = a * Math.exp(b * u);
             
-            ctx.beginPath();
-            ctx.moveTo(
-              centerX + Math.cos(angle) * currentRadius,
-              centerY + Math.sin(angle) * currentRadius
-            );
-            ctx.lineTo(
-              centerX + Math.cos(angle) * nextRadius,
-              centerY + Math.sin(angle) * nextRadius
-            );
-            ctx.stroke();
+            const x = r * Math.cos(u + rotationRad);
+            const y = r * Math.sin(u + rotationRad);
+            const z = r * Math.sin(v) * params.complexity * 0.05;
+            
+            return new THREE.Vector3(x, y, z);
           }
-        }
+        ));
+        break;
       }
-      
-      // Draw additional mathematical patterns
-      drawSinWaves(ctx, centerX, centerY, maxRadius, time, mousePos, isClicking);
-      drawLissajousCurve(ctx, centerX, centerY, maxRadius * 0.3, time, mousePos, isClicking);
-      
-      animationFrameRef.current = requestAnimationFrame(animate);
-    };
-    
-    // Function to draw sine wave patterns
-    const drawSinWaves = (
-      ctx: CanvasRenderingContext2D, 
-      centerX: number, 
-      centerY: number, 
-      radius: number, 
-      time: number,
-      mousePos: THREE.Vector2,
-      isClicking: boolean
-    ) => {
-      const mouseDistanceX = (mousePos.x - centerX) / (canvas.width / 2);
-      const mouseDistanceY = (mousePos.y - centerY) / (canvas.height / 2);
-      const mouseDistance = Math.sqrt(mouseDistanceX * mouseDistanceX + mouseDistanceY * mouseDistanceY);
-      
-      // Amplitude affected by mouse distance
-      const mouseAmplitude = isClicking ? mouseDistance * 0.2 : mouseDistance * 0.1;
-      const amplitude = radius * 0.05 * (1 + Math.sin(time * 0.1) * 0.3 + mouseAmplitude);
-      
-      // Frequency affected by mouse position
-      const mouseFrequency = isClicking ? mouseDistance * 5 : mouseDistance * 2;
-      const frequency = 15 + Math.sin(time * 0.05) * 3 + mouseFrequency;
-      
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.lineWidth = 0.5;
-      
-      for (let i = 0; i < 3; i++) {
-        const phaseOffset = i * Math.PI / 3 + time * 0.05;
-        const radiusOffset = radius * 0.1 * i;
-        
-        ctx.beginPath();
-        
-        for (let angle = 0; angle < Math.PI * 2; angle += 0.05) {
-          const r = radius - radiusOffset + 
-            amplitude * Math.sin(frequency * angle + time + phaseOffset);
-          
-          const x = centerX + Math.cos(angle) * r;
-          const y = centerY + Math.sin(angle) * r;
-          
-          if (angle === 0) {
-            ctx.moveTo(x, y);
-          } else {
-            ctx.lineTo(x, y);
+      case 'vortex': {
+        // Vortex with twisted planes
+        const maxRadius = 5 * amp;
+        curves.push(...getCurvePoints(
+          0, 1, 0, Math.PI * 2, 
+          segments, Math.floor(segments / 2),
+          (u, v) => {
+            const radius = u * maxRadius;
+            const twist = u * params.complexity * Math.PI;
+            
+            const x = radius * Math.cos(v + twist + rotationRad);
+            const y = radius * Math.sin(v + twist + rotationRad);
+            const z = (1 - u) * 3 * amp * Math.sin(v * freq * 2) * Math.cos(v * freq * 2);
+            
+            return new THREE.Vector3(x, y, z);
           }
-        }
-        
-        ctx.closePath();
-        ctx.stroke();
+        ));
+        break;
       }
-    };
+    }
     
-    // Function to draw Lissajous curves
-    const drawLissajousCurve = (
-      ctx: CanvasRenderingContext2D, 
-      centerX: number, 
-      centerY: number, 
-      radius: number, 
-      time: number,
-      mousePos: THREE.Vector2,
-      isClicking: boolean
-    ) => {
-      const mouseDistanceX = (mousePos.x - centerX) / (canvas.width / 2);
-      const mouseDistanceY = (mousePos.y - centerY) / (canvas.height / 2);
-      
-      // Parameters affected by mouse position
-      const a = 3 + Math.sin(time * 0.1) + (isClicking ? mouseDistanceX : mouseDistanceX * 0.5);
-      const b = 2 + Math.cos(time * 0.2) + (isClicking ? mouseDistanceY : mouseDistanceY * 0.5);
-      const delta = time * 0.3;
-      
-      // Color affected by mouse position
-      const hue = ((time * 5) + (mousePos.x / canvas.width) * 180) % 360;
-      const saturation = 70 + (mousePos.y / canvas.height) * 30;
-      ctx.strokeStyle = `hsla(${hue}, ${saturation}%, 70%, 0.6)`;
-      ctx.lineWidth = 0.8;
-      
-      ctx.beginPath();
-      
-      for (let t = 0; t < Math.PI * 10; t += 0.1) {
-        const x = centerX + radius * Math.sin(a * t + delta);
-        const y = centerY + radius * Math.sin(b * t);
-        
-        if (t === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-      }
-      
-      ctx.stroke();
-    };
-    
-    animate();
-    
-    return () => {
-      cancelAnimationFrame(animationFrameRef.current);
-    };
-  }, [mousePos, isClicking]);
+    return { curves, colorPalette };
+  }, [params]);
+  
+  useFrame((state, delta) => {
+    if (groupRef.current) {
+      // Slowly rotate the entire structure for subtle animation
+      groupRef.current.rotation.y += delta * 0.1;
+      groupRef.current.rotation.x = Math.sin(time * 0.1) * 0.1;
+    }
+  });
   
   return (
-    <canvas 
-      ref={canvasRef} 
-      className="absolute top-0 left-0 w-full h-full z-0"
-      style={{ background: 'black' }}
-    />
+    <group ref={groupRef}>
+      {curves.map((curve, curveIndex) => (
+        <line key={`curve-${curveIndex}`}>
+          <bufferGeometry>
+            <bufferAttribute
+              attach="attributes-position"
+              count={curve.length}
+              array={new Float32Array(curve.flatMap(v => [v.x, v.y, v.z]))}
+              itemSize={3}
+              args={[new Float32Array(curve.flatMap(v => [v.x, v.y, v.z])), 3]}
+            />
+          </bufferGeometry>
+          <lineBasicMaterial
+            color={colorPalette[curveIndex % colorPalette.length]}
+            linewidth={1}
+            transparent
+            opacity={0.8}
+          />
+        </line>
+      ))}
+      {curves.map((curve, curveIndex) => 
+        curve.map((point, pointIndex) => 
+          // Only render a subset of points to avoid performance issues
+          (pointIndex % 4 === 0 && curveIndex % 2 === 0) ? (
+            <mesh 
+              key={`point-${curveIndex}-${pointIndex}`} 
+              position={point}
+              scale={0.05}
+            >
+              <sphereGeometry args={[1, 8, 8]} />
+              <meshBasicMaterial 
+                color={colorPalette[(curveIndex + 1) % colorPalette.length]} 
+                transparent 
+                opacity={0.7}
+              />
+            </mesh>
+          ) : null
+        )
+      )}
+    </group>
+  );
+};
+
+// The main scene component with camera controls
+const GenerativeArtScene = ({ params }: { params: ArtParams }) => {
+  const timeRef = useRef(0);
+  
+  useFrame((state, delta) => {
+    timeRef.current += delta;
+  });
+  
+  return (
+    <>
+      <ambientLight intensity={0.5} />
+      <pointLight position={[10, 10, 10]} intensity={1} />
+      <ParametricSurface params={params} time={timeRef.current} />
+      <OrbitControls enablePan={false} enableZoom={true} enableRotate={true} />
+    </>
+  );
+};
+
+// Controls component for the UI
+type ControlsProps = {
+  params: ArtParams;
+  setParams: React.Dispatch<React.SetStateAction<ArtParams>>;
+  isDarkMode: boolean;
+};
+
+const GenerativeArtControls = ({ params, setParams, isDarkMode }: ControlsProps) => {
+  const handleChange = (key: keyof ArtParams, value: any) => {
+    setParams(prev => ({ ...prev, [key]: value }));
+  };
+  
+  return (
+    <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-gray-800/80' : 'bg-gray-100/80'} backdrop-filter backdrop-blur-sm`}>
+      <div className="space-y-4">
+        <div>
+          <label className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+            Style
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {(['waves', 'ribbons', 'shell', 'vortex'] as const).map(type => (
+              <button
+                key={type}
+                className={`px-3 py-2 text-xs rounded-lg transition
+                  ${params.curveType === type
+                    ? isDarkMode 
+                      ? 'bg-indigo-600 text-white' 
+                      : 'bg-indigo-100 text-indigo-800'
+                    : isDarkMode
+                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      : 'bg-white text-gray-700 hover:bg-gray-50'
+                  }`}
+                onClick={() => handleChange('curveType', type)}
+              >
+                {type.charAt(0).toUpperCase() + type.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        <div>
+          <div className="flex justify-between">
+            <label className={`block text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+              Complexity: {params.complexity}
+            </label>
+          </div>
+          <input
+            type="range"
+            min="1"
+            max="10"
+            step="1"
+            value={params.complexity}
+            onChange={(e) => handleChange('complexity', Number(e.target.value))}
+            className="w-full h-1.5 bg-indigo-200 rounded-lg appearance-none cursor-pointer mt-1"
+          />
+        </div>
+        
+        <div>
+          <div className="flex justify-between">
+            <label className={`block text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+              Amplitude: {params.amplitude.toFixed(1)}
+            </label>
+          </div>
+          <input
+            type="range"
+            min="0.1"
+            max="2.0"
+            step="0.1"
+            value={params.amplitude}
+            onChange={(e) => handleChange('amplitude', Number(e.target.value))}
+            className="w-full h-1.5 bg-indigo-200 rounded-lg appearance-none cursor-pointer mt-1"
+          />
+        </div>
+        
+        <div>
+          <div className="flex justify-between">
+            <label className={`block text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+              Frequency: {params.frequency.toFixed(1)}
+            </label>
+          </div>
+          <input
+            type="range"
+            min="0.1"
+            max="5.0"
+            step="0.1"
+            value={params.frequency}
+            onChange={(e) => handleChange('frequency', Number(e.target.value))}
+            className="w-full h-1.5 bg-indigo-200 rounded-lg appearance-none cursor-pointer mt-1"
+          />
+        </div>
+        
+        <div>
+          <div className="flex justify-between">
+            <label className={`block text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+              Rotation: {params.rotation}°
+            </label>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="360"
+            step="5"
+            value={params.rotation}
+            onChange={(e) => handleChange('rotation', Number(e.target.value))}
+            className="w-full h-1.5 bg-indigo-200 rounded-lg appearance-none cursor-pointer mt-1"
+          />
+        </div>
+        
+        <div>
+          <div className="flex justify-between">
+            <label className={`block text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+              Density: {params.density}
+            </label>
+          </div>
+          <input
+            type="range"
+            min="10"
+            max="100"
+            step="5"
+            value={params.density}
+            onChange={(e) => handleChange('density', Number(e.target.value))}
+            className="w-full h-1.5 bg-indigo-200 rounded-lg appearance-none cursor-pointer mt-1"
+          />
+        </div>
+        
+        <div>
+          <label className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+            Color Mode
+          </label>
+          <div className="flex gap-2">
+            <button
+              className={`flex-1 px-3 py-2 text-xs rounded-lg transition
+                ${params.monochrome
+                  ? isDarkMode 
+                    ? 'bg-indigo-600 text-white' 
+                    : 'bg-indigo-100 text-indigo-800'
+                  : isDarkMode
+                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              onClick={() => handleChange('monochrome', true)}
+            >
+              Monochrome
+            </button>
+            <button
+              className={`flex-1 px-3 py-2 text-xs rounded-lg transition
+                ${!params.monochrome
+                  ? isDarkMode 
+                    ? 'bg-indigo-600 text-white' 
+                    : 'bg-indigo-100 text-indigo-800'
+                  : isDarkMode
+                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              onClick={() => handleChange('monochrome', false)}
+            >
+              Color
+            </button>
+          </div>
+        </div>
+        
+        <div>
+          <label className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+            Color Scheme
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {(['gray', 'blue', 'purple', 'golden'] as const).map(scheme => (
+              <button
+                key={scheme}
+                className={`px-3 py-2 text-xs rounded-lg transition
+                  ${params.colorScheme === scheme
+                    ? isDarkMode 
+                      ? 'bg-indigo-600 text-white' 
+                      : 'bg-indigo-100 text-indigo-800'
+                    : isDarkMode
+                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      : 'bg-white text-gray-700 hover:bg-gray-50'
+                  }`}
+                onClick={() => handleChange('colorScheme', scheme)}
+              >
+                {scheme.charAt(0).toUpperCase() + scheme.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        <div className="pt-2">
+          <button
+            className={`w-full px-4 py-2 rounded-lg text-sm font-medium transition
+              ${isDarkMode
+                ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                : 'bg-indigo-500 hover:bg-indigo-600 text-white'
+              }`}
+            onClick={() => setParams(defaultParams)}
+          >
+            Reset to Default
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Main export component
+export default function MathPatterns() {
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [params, setParams] = useState<ArtParams>(defaultParams);
+  
+  return (
+    <div className="w-full h-full relative overflow-hidden">
+      {/* Main Canvas */}
+      <Canvas
+        camera={{ position: [0, 0, 10], fov: 50 }}
+        dpr={[1, 2]} // Responsive device pixel ratio
+      >
+        <color attach="background" args={[isDarkMode ? '#050912' : '#f8fafc']} />
+        <GenerativeArtScene params={params} />
+        <AdaptiveDpr pixelated />
+      </Canvas>
+      
+      {/* Controls - Positioned in bottom left */}
+      <div className="absolute left-6 bottom-6 w-64 z-10">
+        <GenerativeArtControls 
+          params={params} 
+          setParams={setParams} 
+          isDarkMode={isDarkMode} 
+        />
+      </div>
+    </div>
   );
 } 

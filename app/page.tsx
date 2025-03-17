@@ -7,14 +7,22 @@ import { useState, useEffect } from 'react';
 const CircleArt = dynamic(() => import('../components/CircleArt'), { ssr: false });
 const MathPatterns = dynamic(() => import('../components/MathPatterns'), { ssr: false });
 const HexagonalCircles = dynamic(() => import('../components/HexagonalCircles'), { ssr: false });
+const Supershapes = dynamic(() => import('../components/Supershapes'), { ssr: false });
 
 // Define the available visualization types
-type VisualizationType = '2d-math' | '3d-hex' | 'circles';
+type VisualizationType = '2d-math' | '3d-hex' | 'circles' | 'supershapes';
 
 export default function Home() {
   const [activePattern, setActivePattern] = useState<VisualizationType>('2d-math');
   const [showControls, setShowControls] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(true);
+  
+  // New state to keep track of the shape type in the Circle animation
+  const [selectedShape, setSelectedShape] = useState<'circle' | 'square' | 'triangle'>('circle');
+  
+  // Add state for particle controls
+  const [particleCount, setParticleCount] = useState(500);
+  const [particleSpeed, setParticleSpeed] = useState(1.0);
 
   // Toggle controls visibility with keyboard shortcut
   useEffect(() => {
@@ -27,6 +35,11 @@ export default function Home() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Function to handle shape change from CircleArt child component
+  const handleShapeChange = (shape: 'circle' | 'square' | 'triangle') => {
+    setSelectedShape(shape);
+  };
 
   return (
     <div className={`min-h-screen ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'} p-4 md:p-8 flex items-center justify-center overflow-hidden transition-colors duration-300`}>
@@ -69,6 +82,20 @@ export default function Home() {
                   2D Math Patterns
                 </button>
                 
+                {activePattern === '2d-math' && (
+                  <div className={`mt-2 mb-4 px-4 py-3 rounded-xl ${isDarkMode ? 'bg-gray-700/30' : 'bg-gray-100'}`}>
+                    <h3 className={`text-base font-semibold mb-1 bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500`}>
+                      GENERATIVE ART
+                    </h3>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                      Create your own generative art with parametric surfaces. Design flowing curves, ribbons, shells, and vortices by adjusting complexity, amplitude, frequency, and more. Experiment with monochrome or color palettes.
+                    </p>
+                    <p className={`text-xs mt-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Click and drag to rotate the structure | Use mouse wheel to zoom
+                    </p>
+                  </div>
+                )}
+                
                 <button 
                   className={`w-full px-4 py-3 rounded-xl text-left text-sm transition-all flex items-center gap-3 ${
                     activePattern === '3d-hex' 
@@ -89,6 +116,54 @@ export default function Home() {
                   Geodesic Architecture
                 </button>
                 
+                {activePattern === '3d-hex' && (
+                  <div className={`mt-2 mb-4 px-4 py-3 rounded-xl ${isDarkMode ? 'bg-gray-700/30' : 'bg-gray-100'}`}>
+                    <h3 className={`text-base font-semibold mb-1 bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500`}>
+                      COSMIC TUNNEL
+                    </h3>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                      An architectural visualization inspired by geodesic domes and molecular structures. This 3D experience features a shrinking geodesic dome and particles that flow toward screen corners, creating an immersive tunnel effect.
+                    </p>
+                    
+                    {/* Add particle controls */}
+                    <div className="mt-3 space-y-2">
+                      <div>
+                        <label className={`flex justify-between items-center text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} mb-1`}>
+                          <span>Particle Count: {particleCount}</span>
+                        </label>
+                        <input 
+                          type="range" 
+                          min="100" 
+                          max="1000" 
+                          step="50" 
+                          value={particleCount}
+                          onChange={(e) => setParticleCount(Number(e.target.value))}
+                          className="w-full h-1.5 bg-blue-200 rounded-lg appearance-none cursor-pointer dark:bg-blue-700"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className={`flex justify-between items-center text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} mb-1`}>
+                          <span>Particle Speed: {particleSpeed.toFixed(1)}x</span>
+                        </label>
+                        <input 
+                          type="range" 
+                          min="0.5" 
+                          max="3" 
+                          step="0.1" 
+                          value={particleSpeed}
+                          onChange={(e) => setParticleSpeed(Number(e.target.value))}
+                          className="w-full h-1.5 bg-blue-200 rounded-lg appearance-none cursor-pointer dark:bg-blue-700"
+                        />
+                      </div>
+                    </div>
+                    
+                    <p className={`text-xs mt-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Click and hold to increase the animation speed and intensity.
+                    </p>
+                  </div>
+                )}
+                
                 <button 
                   className={`w-full px-4 py-3 rounded-xl text-left text-sm transition-all flex items-center gap-3 ${
                     activePattern === 'circles' 
@@ -106,8 +181,59 @@ export default function Home() {
                       <circle cx="12" cy="12" r="10"/>
                     </svg>
                   </span>
-                  Circle Animations
+                  3D Shape Patterns
                 </button>
+                
+                {activePattern === 'circles' && (
+                  <div className={`mt-2 mb-4 px-4 py-3 rounded-xl ${isDarkMode ? 'bg-gray-700/30' : 'bg-gray-100'}`}>
+                    <h3 className={`text-base font-semibold mb-1 bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500`}>
+                      {selectedShape === 'circle' ? 'CIRCLES' : selectedShape === 'square' ? 'SQUARES' : 'TRIANGLES'} IN MOTION
+                    </h3>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                      Create dynamic 3D shape animations with customizable patterns. Control distribution (grid, spiral, wave), motion effects, and color schemes to generate unique formations that respond to your mouse movements.
+                    </p>
+                    <p className={`text-xs mt-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Move your mouse to interact | Press H to toggle advanced shape controls
+                    </p>
+                  </div>
+                )}
+                
+                <button 
+                  className={`w-full px-4 py-3 rounded-xl text-left text-sm transition-all flex items-center gap-3 ${
+                    activePattern === 'supershapes' 
+                      ? isDarkMode 
+                        ? 'bg-indigo-600 text-white font-medium' 
+                        : 'bg-indigo-100 text-indigo-800 font-medium'
+                      : isDarkMode
+                        ? 'bg-gray-700/50 text-gray-300 hover:bg-gray-700'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                  onClick={() => setActivePattern('supershapes')}
+                >
+                  <span className="w-6 h-6 flex items-center justify-center rounded-full bg-indigo-500/20">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 2L4.5 10 2 18l8 4 8-4-2.5-8z"/>
+                      <path d="M12 2l7.5 8L22 18l-8 4-8-4 2.5-8z"/>
+                    </svg>
+                  </span>
+                  Supershapes
+                </button>
+                
+                {activePattern === 'supershapes' && (
+                  <div className={`mt-2 mb-4 px-4 py-3 rounded-xl ${isDarkMode ? 'bg-gray-700/30' : 'bg-gray-100'}`}>
+                    <h3 className={`text-base font-semibold mb-1 bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500`}>
+                      SUPERSHAPES
+                    </h3>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                      Mathematical visualizations using the Superformula, Lissajous figures, and Möbius strips. These complex geometric forms demonstrate how simple equations can create incredible 3D structures.
+                    </p>
+                    <div className={`mt-2 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      <p><span className="font-medium">Press 1:</span> Superformula - A generalization of the circle equation</p>
+                      <p><span className="font-medium">Press 2:</span> Lissajous - Complex harmonic motion patterns</p>
+                      <p><span className="font-medium">Press 3:</span> Möbius - Non-orientable surface with one boundary</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             
@@ -179,26 +305,12 @@ export default function Home() {
           {/* Background pattern - full screen */}
           <div className="absolute inset-0">
             {activePattern === '2d-math' && <MathPatterns />}
-            {activePattern === '3d-hex' && <HexagonalCircles />}
-            {activePattern === 'circles' && <CircleArt />}
+            {activePattern === '3d-hex' && <HexagonalCircles particleCount={particleCount} particleSpeed={particleSpeed} />}
+            {activePattern === 'circles' && <CircleArt onShapeChange={handleShapeChange} />}
+            {activePattern === 'supershapes' && <Supershapes />}
           </div>
           
-          {/* Center title with gradient */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none">
-            {activePattern !== '3d-hex' && (
-              <h1 className="text-6xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500">
-                {activePattern === '2d-math' && '2D DESIGN'}
-                {activePattern === 'circles' && 'CIRCLES'}
-              </h1>
-            )}
-            
-            {activePattern === '3d-hex' && activePattern !== '3d-hex' && (
-              <p className="mt-4 text-lg text-blue-300/80 max-w-md text-center">
-                An architectural visualization inspired by geodesic domes and molecular structures
-              </p>
-            )}
-          </div>
-          
+          {/* Remove the center title with gradient and replace with only instructions */}
           {/* Instructions */}
           <div className="absolute bottom-6 left-0 w-full z-20 flex justify-center">
             <div className="bg-black/40 backdrop-blur-md px-6 py-3 rounded-full text-white/90 text-sm font-medium">
